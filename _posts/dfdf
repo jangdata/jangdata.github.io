@@ -1,0 +1,22 @@
+# df_visit_hyfresh : 방문일자 카운트_월별, 전체평균, 전체합
+query = """
+with temp as (SELECT intg_mem_id as mem_id,std_date
+                FROM dm.anl_dd_weblog
+                WHERE 1=1
+                AND std_date BETWEEN add_months('{0}',-4) AND date_add('{0}',-1) -- 최근 4개월
+                AND intg_mem_id != ''
+                GROUP BY mem_id, std_date)
+        SELECT mem_id,         
+        sum(case when (std_date between add_months('{0}',-4) and add_months(date_add('{0}',-1),-3)) then 1 else 0 end) as visit_m4,
+        sum(case when (std_date between add_months('{0}',-3) and add_months(date_add('{0}',-1),-2)) then 1 else 0 end) as visit_m3,
+        sum(case when (std_date between add_months('{0}',-2) and add_months(date_add('{0}',-1),-1)) then 1 else 0 end) as visit_m2,
+        sum(case when (std_date between add_months('{0}',-1) and date_add('{0}',-1)) then 1 else 0 end) as visit_m1
+        FROM temp                
+        GROUP BY mem_id
+        """.format(start_date)
+cursor.execute(query)
+df_visit_hyfresh = as_pandas(cursor).set_index('mem_id')
+df_visit_hyfresh.fillna(value=0,inplace=True)
+df_visit_hyfresh['visit_mean'] = df_visit_hyfresh.iloc[:,:4].mean(axis=1)
+df_visit_hyfresh['visit_sum'] = df_visit_hyfresh.iloc[:,:4].sum(axis=1)
+df_visit_hyfresh
