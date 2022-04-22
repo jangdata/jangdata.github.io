@@ -1,0 +1,529 @@
+
+#%%
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+from numpy.polynomial.polynomial import polyfit
+import matplotlib.style as style 
+from IPython.display import Image
+
+import warnings
+warnings.filterwarnings('ignore')
+
+# define random jitter
+def rjitt(arr):
+    stdev = .01*(max(arr)-min(arr))
+    return arr + np.random.randn(len(arr)) * stdev
+
+def rjitt2(arr):
+    stdev = .02*(max(arr)-min(arr))
+    return arr + np.random.randn(len(arr)) * stdev
+
+
+
+# YONG's local data path
+# dataPath = 'C:/YONG/m1710/myPydata/'
+
+# custom min max scaler
+def mnmx_scl(vec):
+    vec = (vec-vec.min())/(vec.max()-vec.min())
+    return(vec)
+
+def zrmx_scl(vec):
+    vec = vec/vec.max()
+    return(vec)
+
+import datetime
+
+def last_day_of_month(any_day):
+    # this will never fail
+    # get close to the end of the month for any day, and add 4 days 'over'
+    next_month = any_day.replace(day=28) + datetime.timedelta(days=4)
+    # subtract the number of remaining 'overage' days to get last day of current month, 
+    # or programmattically said, the day before the 1st of the next month
+    return next_month - datetime.timedelta(days=next_month.day)
+
+
+# 값별 인원수와 구성비를 dataframe 형태로 출력하는 함수
+def cntnpcnt(x):
+    # x is supposed to be a pandas series
+    dfx = pd.DataFrame(x)
+    dfx['recCnt'] = 1
+    dfx = dfx.groupby(dfx.columns[0]).count().reset_index()
+    dfx['pcntrecCnt'] = dfx.recCnt/dfx.recCnt.sum() *100
+    return(dfx)
+
+# cntpcnt에 cumsum 추가 후 Top 20만 return
+def cntnpcntc(x):
+    tmpdfx = cntnpcnt(x)
+    tmpdfx = tmpdfx.sort_values('recCnt',ascending=False)
+    tmpdfx['cumSum'] = tmpdfx.pcntrecCnt.cumsum()
+    return(tmpdfx.nlargest(20,'recCnt'))
+
+# to count number of instances and target class ratio by a dimension
+def cntntgtr(df, keyVar, tgtVar):
+    # target var is supposed to be binary {0,1}
+    dftmp1 = cntnpcnt(df[keyVar])
+    dftmp2 = cntnpcnt(df[df[tgtVar]==1][keyVar])[[keyVar, 'recCnt']]
+    dftmp2.columns = [keyVar, tgtVar + '_recCnt']
+    dftmp3 = dftmp1.merge(dftmp2, how='left', on=keyVar)
+    dftmp3.fillna(0, inplace=True)
+    dftmp3[tgtVar + 'Ratio'] = dftmp3[tgtVar + '_recCnt'] / dftmp3.recCnt
+    return(dftmp3)
+
+def showcntnRatio(df, keyVar, tgtVar):
+    plt.bar(dff[keyVar], zrmx_scl(dff.recCnt), color='steelblue')
+    plt.bar(dff[keyVar], zrmx_scl(dff[tgtVar + 'Ratio']), alpha=0.5, width=0.3, color='orange')
+    plt.xticks(rotation=45, ha='right')
+    plt.ylabel('scaled recCnt and tgt Ratio')
+    plt.title(tgtVar)
+    plt.legend(['count','ratio'])
+    plt.axhline(zrmx_scl(dff[tgtVar + 'Ratio']).median(), linestyle=':', color='grey')
+    plt.show()
+
+
+    
+import warnings
+warnings.filterwarnings('ignore')
+
+# plt.rcParams.update(plt.rcParamsDefault) # restore matplotlib default
+
+
+#폰트깨짐 방지 설정
+plt.rcParams.update(plt.rcParamsDefault)
+plt.rcParams['axes.unicode_minus'] = False 
+plt.rc('font', family='Yakult_Title')
+
+
+#%%
+from impala.dbapi import connect
+from impala.util import as_pandas
+import pandas as pd
+from tqdm.notebook import tqdm
+from time import sleep
+
+pd.set_option('display.max_columns', None)
+
+# 회원 연령 성별 인구통계 데이터 추출
+
+strtDate = '2021-03-01'
+endDate = '2022-03-31'
+
+
+# 최근의 고객정보 상태를 가져옴
+
+query = '''
+        SELECT a.std_date, a.mem_id, a.age, a.gnr_tp_cd, a.jn_dtm 
+        FROM
+        (SELECT distinct std_date, mem_id, age, gnr_tp_cd, jn_dtm 
+            FROM dm.anl_dd_mem_h 
+            WHERE jn_dtm>='{}' 
+                and jn_dtm<='{}') as a,
+        (SELECT mem_id, max(std_date) as last_std_date
+            FROM dm.anl_dd_mem_h 
+            WHERE jn_dtm>='{}' 
+                and jn_dtm<='{}' 
+            GROUP BY mem_id) as b
+        WHERE a.std_date = b.last_std_date
+            and a.mem_id = b.mem_id           
+        '''.format(strtDate, endDate,strtDate, endDate)
+
+conn = connect(host='192.168.91.156', port=21050)
+cursor = conn.cursor()
+
+cursor.execute(query)
+dfmbr = as_pandas(cursor)
+
+
+dfmbr['gnr_tp_cd'] = dfmbr.gnr_tp_cd.astype(str)
+
+
+from datetime import datetime
+from datetime import date
+
+t_date = np.datetime64(date.today())
+dfmbr['tenure'] = t_date - pd.to_datetime(dfmbr.jn_dtm, infer_datetime_format=True)
+dfmbr['tenure'] = dfmbr['tenure'].dt.days
+
+dfmbr.sample(5)
+#%%
+# 27주면 6개월 가량
+7 * 27 / 365
+#%%
+from impala.dbapi import connect
+from impala.util import as_pandas
+import pandas as pd
+from tqdm.notebook import tqdm
+from time import sleep
+from datetime import date
+from datetime import timedelta
+
+
+# 최근 27주 트래픽 확인
+
+periodLength = 7 * 29
+strtDate = (date.today() - timedelta(days=periodLength)).strftime("%Y-%m-%d")
+endDate = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+print(strtDate, endDate)
+
+
+query = '''
+        with temp as (
+                          select pg_create_dtm,
+                                  intg_mem_id, 
+                                  (case when act_vl !='' then act_vl else regexp_extract(pg_reqparam,'^prdId=([0-9]+)',1) end) as act_vl, 
+                                  count(*) as n_click
+                          from dm.anl_dd_weblog a
+                          where 1=1
+                          and std_date between '{}' and '{}'
+                          and intg_mem_id != ''
+                          and act_id = 'productDetail'
+                          and req_tp = 'view'
+                          group by pg_create_dtm, intg_mem_id, act_vl)
+                  
+                  select pg_create_dtm, intg_mem_id, act_vl as prd_id, prd_nm, n_click
+                  from temp a, ccip.prd_prd_m b
+                  where 1=1
+                  and a.act_vl = b.prd_id
+        '''.format(strtDate, endDate)
+
+conn = connect(host='192.168.91.156', port=21050)
+cursor = conn.cursor()
+cursor.execute(query)
+
+dflog = as_pandas(cursor)
+print(dflog.shape)
+dflog.sample(10)     
+#%%
+
+#%%
+dflog.columns = ['pgc_dtm', 'mem_id', 'prd_id', 'prd_nm', 'n_click']
+dflog = dflog[dflog.mem_id.isin(dfmbr.mem_id)]
+
+print(dflog.shape)
+dflog.sample(10)  
+#%%
+# get list of custs in the first month
+
+baseCusts = dflog[dflog.pgc_dtm.astype(str).str.slice(0,7)=='2021-11'].mem_id.unique()
+len(baseCusts)
+#%%
+dflogtmp1 = dflog[['pgc_dtm', 'mem_id']].copy()
+dflogtmp1['pgc_mnth'] = dflogtmp1.pgc_dtm.astype(str).str.slice(0,7)
+dflogtmp1[['pgc_mnth', 'mem_id']].drop_duplicates().groupby('pgc_mnth').count().reset_index()
+#%%
+# 11월 방문한 고객의 방문이력
+dflogtmp2 = dflogtmp1[(dflogtmp1.mem_id.isin(baseCusts))][['mem_id', 'pgc_mnth']].drop_duplicates()
+dflogtmp2 = dflogtmp2.sort_values('pgc_mnth')
+dflogtmp2 = dflogtmp2[dflogtmp2.pgc_mnth<='2022-03']
+dflogtmp3 = dflogtmp2.groupby('mem_id').tail(1)
+dflogtmp4 = dflogtmp3.groupby('pgc_mnth').count().reset_index()
+plt.bar(dflogtmp4.pgc_mnth, dflogtmp4.mem_id)
+portions = np.round(np.array(dflogtmp4.mem_id/dflogtmp4.mem_id.sum()*100),1)
+for i in range(len(portions)):
+    text2show = str(portions[i]) + '%'
+    plt.text(i, 5000, text2show, ha='center')
+plt.title('2021-11 방문 회원의 미래 최종방문일 분포')
+plt.show()
+
+portions[:2].sum()
+#%% md
+- 11월 방문한 회원 중 이후 4개월 중 (3개월무방문 기준) 방문이탈 비율은 58%
+#%%
+dflog = dflog[dflog.pgc_dtm.astype(str).str.slice(0,7)<'2022-04']
+dflog = dflog[dflog.pgc_dtm.astype(str).str.slice(0,7)>='2021-10']
+#%%
+
+#%% md
+## 이탈예측 형식의 분석
+#%%
+dflogpst = dflog[dflog.pgc_dtm.astype(str).str.slice(0,7)<='2021-12']
+print(len(dflogpst.mem_id.unique()))
+
+dflogftr = dflog[dflog.pgc_dtm.astype(str).str.slice(0,7)>='2022-01']
+print(len(dflogftr.mem_id.unique()))
+#%%
+# create target
+
+# 미래방문일수
+dflogftr['pgc_dt'] = dflogftr.pgc_dtm.astype(str).str.slice(0,10)
+dflogftr01 = dflogftr[['mem_id', 'pgc_dt']].drop_duplicates().groupby('mem_id').count().reset_index()
+
+# 미래방문개월수
+dflogftr['pgc_mon'] = dflogftr.pgc_dtm.astype(str).str.slice(0,7)
+dflogftr02 = dflogftr[['mem_id', 'pgc_mon']].drop_duplicates().groupby('mem_id').count().reset_index()
+dflogftr02
+#%%
+# create input
+
+# 3개월중 방문일수
+dflogpst['pgc_dt'] = dflogpst.pgc_dtm.astype(str).str.slice(0,10)
+dflogpst01 = dflogpst[['mem_id', 'pgc_dt']].drop_duplicates().groupby('mem_id').count().reset_index()
+print(dflogpst01.shape)
+dflogpst01
+#%%
+# 3개월중 조회건수 page views
+
+dflogpst0101 = dflogpst[['mem_id', 'pgc_dt']].groupby('mem_id').count().reset_index()
+print(dflogpst0101.shape)
+dflogpst0101.columns = ['mem_id', 'cntView']
+dflogpst0101
+#%%
+# 방문개월수 
+
+dflogpst['pgc_mon'] = dflogpst.pgc_dtm.astype(str).str.slice(0,7)
+dflogpst011 = dflogpst[['mem_id', 'pgc_mon']].drop_duplicates().groupby('mem_id').count().reset_index()
+dflogpst011
+#%%
+# 최근 1개월 방문일수
+
+dflogpst['pgc_dt'] = dflogpst.pgc_dtm.astype(str).str.slice(0,10)
+
+dflogpst012 = dflogpst[dflogpst['pgc_dt'].str.slice(0,7)=='2021-12'][['mem_id', 'pgc_dt']].drop_duplicates().groupby('mem_id').count().reset_index()
+print(dflogpst012.shape)
+dflogpst012.columns = ['mem_id', 'cntRmDt']
+dflogpst012
+#%%
+# 최근 1개월 방문주수
+
+dflogpst['wk_id'] = dflogpst.pgc_dtm.dt.week
+
+
+dflogpst013 = dflogpst[dflogpst['pgc_dt'].str.slice(0,7)=='2021-12'][['mem_id', 'wk_id']].drop_duplicates().groupby('mem_id').count().reset_index()
+print(dflogpst013.shape)
+dflogpst013.columns = ['mem_id', 'cntRmWks']
+dflogpst013
+
+#%%
+# 마지막 조회상품명
+
+top100popPrds = cntnpcnt(dflogpst.prd_nm).nlargest(100,'recCnt').prd_nm
+
+# dflogpst015 = dflogpst[dflogpst.prd_nm.isin(top100popPrds)].sort_values('pgc_dt')[['mem_id', 'prd_nm']].groupby('mem_id').tail(1)
+dflogpst015 = dflogpst.sort_values('pgc_dt')[['mem_id', 'prd_nm']].groupby('mem_id').tail(1)
+print(dflogpst015.shape)
+dflogpst015.columns = ['mem_id', 'lastV_prd']
+dflogpst015
+#%%
+
+#%%
+# add targets
+
+dflogpst02 = dflogpst01.merge(dflogftr02, how='left', on='mem_id')
+dflogpst02 = dflogpst02.merge(dflogftr01, how='left', on='mem_id')
+dflogpst02.fillna(0, inplace=True)
+
+dflogpst02.columns = ['mem_id', 'cntDt', 'cntMon_ftr', 'cntDt_ftr']
+dflogpst02
+#%%
+plt.scatter(rjitt(dflogpst02.cntDt), rjitt(dflogpst02.cntMon_ftr),
+           alpha=0.01)
+plt.xlabel('방문일수')
+plt.ylabel('미래방문개월수')
+x1 = dflogpst02.cntDt
+y1 = dflogpst02.cntMon_ftr
+plt.plot(np.unique(x1), np.poly1d(np.polyfit(x1, y1, 3))(np.unique(x1)), 
+            color='red', linewidth=2, linestyle='--')
+plt.ylim(-0.5,4)
+plt.axhline(y1.quantile(0.8), color='grey', linestyle=':')
+plt.show()
+
+plt.scatter(rjitt(dflogpst02.cntDt), rjitt(dflogpst02.cntDt_ftr),
+           alpha=0.01)
+plt.xlabel('방문일수')
+plt.ylabel('미래방문일수')
+x1 = dflogpst02.cntDt
+y1 = dflogpst02.cntDt_ftr
+plt.plot(np.unique(x1), np.poly1d(np.polyfit(x1, y1, 3))(np.unique(x1)), 
+            color='red', linewidth=2, linestyle='--')
+plt.ylim(-5,90)
+plt.axhline(y1.quantile(0.8), color='grey', linestyle=':')
+plt.show()
+#%%
+# 조회상품수
+dflogpst03 = dflogpst[['mem_id', 'prd_nm']].drop_duplicates().groupby('mem_id').count().reset_index()
+#%%
+
+#%%
+# 최종방문후 경과일수
+
+dflogpst04 = dflogpst[['mem_id', 'pgc_dt']].sort_values('pgc_dt').drop_duplicates().groupby('mem_id').tail(1)
+
+t_date = np.datetime64('2022-01-01')
+dflogpst04['recency'] = t_date - pd.to_datetime(dflogpst04.pgc_dt, infer_datetime_format=True)
+dflogpst04['recency'] = dflogpst04['recency'].dt.days
+
+dflogpst04
+#%%
+# combine input features
+
+dflogpst05 = dflogpst02.merge(dflogpst012, how='left', on='mem_id')
+dflogpst05 = dflogpst05.merge(dflogpst0101, how='left', on='mem_id')
+dflogpst05 = dflogpst05.merge(dflogpst013, how='left', on='mem_id')
+dflogpst05 = dflogpst05.merge(dflogpst011, how='left', on='mem_id')
+dflogpst05 = dflogpst05.merge(dflogpst03, how='left', on='mem_id')
+dflogpst05 = dflogpst05.merge(dflogpst04[['mem_id', 'recency']], how='left', on='mem_id')
+dflogpst05 = dflogpst05.merge(dflogpst015, how='left', on='mem_id')
+dflogpst05.fillna(0, inplace=True)
+
+dflogpst05.columns = ['mem_id', 'cntDt', 'cntMon_ftr', 'cntDt_ftr', 'cntRmDt','cntView','cntRmWk', 'cntMon', 'cntPrd', 'recency', 'lastV_prd']
+dflogpst05.sample(5)
+#%%
+
+#%%
+dflogpst05 = dflogpst05.merge(dfmbr, how='left', on='mem_id')
+dflogpst05 = dflogpst05[['mem_id', 'cntView','cntDt','cntRmDt','cntRmWk','cntMon', 'cntMon_ftr', 'cntDt_ftr', 'cntPrd', 'recency','lastV_prd', 'age', 'gnr_tp_cd', 'tenure']]
+dflogpst05['age'] = np.where((dflogpst05['age']>=18) & (dflogpst05['age']>=80), dflogpst05['age'], dflogpst05['age'].median())
+dflogpst05['age'] = dflogpst05['age'].astype(int)
+dflogpst05['is_female'] = np.where(dflogpst05['gnr_tp_cd']=='200',1,0)
+dflogpst05['tenure'] = dflogpst05['tenure'] - 92 - 18
+dflogpst05
+#%%
+dflogpst05.info()
+#%%
+dflogpst05 = dflogpst05[dflogpst05.cntMon>1]
+#%%
+from matplotlib import pyplot as plt
+from sklearn.tree import DecisionTreeRegressor
+from sklearn import tree
+
+
+feats = [ 'cntView', 'cntDt','cntRmDt','cntRmWk','cntMon','cntPrd', 'recency', 'age','tenure','is_female']
+X = dflogpst05[feats]
+y = dflogpst05.cntMon_ftr
+
+clf = DecisionTreeRegressor(min_samples_leaf = 1000,
+                             max_depth=4, 
+                             random_state=1234)
+model = clf.fit(X, y)
+
+fig = plt.figure(figsize=(16,8))
+_ = tree.plot_tree(clf, 
+                   feature_names=feats,  
+                   filled=True)
+plt.show()
+#%% md
+- 3개월중 1일 방문이고 최종방문 후 3주 이상 경과했다면 이탈가능성 매우 높음
+- 3개월중 20일이상 방문했다면 이탈가능성 매우 낮음
+#%%
+from sklearn.datasets import make_classification
+import sklearn.metrics as metrics
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_curve, roc_auc_score
+from catboost import CatBoostRegressor
+
+
+y = dflogpst05.cntMon_ftr
+feats = ['cntView', 'cntDt','cntRmDt','cntRmWk','cntMon','cntPrd', 'recency', 'age','tenure','is_female', 'gnr_tp_cd', 'lastV_prd']
+X = dflogpst05[feats]
+
+
+
+# use all available features including categorical ones
+
+categorical_features_indices = np.where(X.dtypes == np.object)[0]
+print(categorical_features_indices)
+
+nIter= 500
+cbmodel = CatBoostRegressor(iterations=nIter, 
+                            eval_metric='RMSE', 
+                            depth=3, random_seed=42, 
+                            metric_period = int(nIter/20),
+                            learning_rate = 0.02)
+cbmodel.fit(X,y, cat_features=categorical_features_indices,
+           plot=True)
+
+
+# Mapping Feature Importance
+
+plt.figure()
+fea_imp = pd.DataFrame({'imp': cbmodel.feature_importances_, 'col': X.columns})
+fea_imp['imp'] = round(fea_imp.imp, 2)
+mean_vimp = fea_imp.imp.mean()
+fea_imp = fea_imp.sort_values(['imp', 'col'], ascending=[True, False]).iloc[-10:]
+_ = fea_imp.plot(kind='barh', x='col', y='imp', figsize=(4, 4))
+plt.title('Var Imp from CatBoost')
+plt.axvline(mean_vimp, linestyle=':')
+plt.show()
+
+fea_imp1 = fea_imp.sort_values('imp', ascending=False)
+
+# add row total
+fea_imp1['cum_sum_imp']= round(fea_imp1['imp'].cumsum(),2)
+fea_imp1.loc['row_total'] = fea_imp.apply(lambda x: x.sum())
+fea_imp1
+#%%
+colors1 = [[x,0.2,1-x] for x in dflogpst05.cntMon_ftr/dflogpst05.cntMon_ftr.max()]
+plt.scatter(rjitt(dflogpst05.cntRmDt), rjitt(dflogpst05.cntMon), 
+            s=10, alpha=0.01, color=colors1)
+plt.xlabel('최근월방문일수')
+plt.ylabel('방문개월수')
+plt.show()
+
+plt.scatter(rjitt(dflogpst05.cntRmDt), rjitt(dflogpst05.cntMon), 
+            s=10, alpha=0.01, color=colors1)
+plt.xlabel('최근월방문일수')
+plt.ylabel('방문개월수')
+plt.axvline(2.5, color='grey')
+plt.axhline(2.5, color='grey')
+plt.xlim(-2,20)
+plt.show()
+#%%
+dftmp001 = dflogpst05[['cntRmDt', 'cntMon_ftr']].groupby('cntRmDt').median().reset_index()
+dftmp0011 = dflogpst05[['cntRmDt', 'cntMon_ftr']].groupby('cntRmDt').mean().reset_index()
+dftmp002 = dflogpst05[['cntRmDt', 'cntMon_ftr']].groupby('cntRmDt').count().reset_index()
+plt.bar(dftmp001.cntRmDt, dftmp001.cntMon_ftr, alpha=0.8)
+plt.bar(dftmp0011.cntRmDt, dftmp0011.cntMon_ftr, alpha=0.3)
+plt.bar(dftmp002.cntRmDt, dftmp002.cntMon_ftr/2000, alpha=0.3)
+plt.xlabel('최근월방문일수')
+plt.legend(['미래방문개월수-median','미래방문개월수-mean','회원수'])
+plt.show()
+
+#%%
+dftmp0011 = dflogpst05[['cntRmWk', 'cntMon_ftr']].groupby('cntRmWk').mean().reset_index()
+dftmp002 = dflogpst05[['cntRmWk', 'cntMon_ftr']].groupby('cntRmWk').count().reset_index()
+plt.bar(dftmp0011.cntRmWk, dftmp0011.cntMon_ftr, alpha=0.5)
+plt.bar(dftmp002.cntRmWk, dftmp002.cntMon_ftr/2000, alpha=0.3, width=0.5)
+plt.xlabel('최근월방문주수')
+plt.legend(['미래방문개월수-mean','회원수'])
+plt.show()
+#%% md
+- 최근 1개월 1개 주, 2개주 방문한 회원간에 미래방문지표 상당한 차이
+- 2주간 방문없는 회원은 적극적으로 방문유도 필요해 보임
+#%%
+colors1 = [[x,0.2,1-x] for x in dflogpst05.cntMon_ftr/dflogpst05.cntMon_ftr.max()]
+plt.scatter(rjitt(dflogpst05.cntDt), rjitt(dflogpst05.recency), 
+            s=10, alpha=0.01, color=colors1)
+plt.xlabel('방문일수')
+plt.ylabel('최종방문후경과일수')
+plt.show()
+
+plt.scatter(rjitt(dflogpst05.cntDt), rjitt(dflogpst05.recency), 
+            s=10, alpha=0.01, color=colors1)
+plt.xlabel('방문일수')
+plt.ylabel('최종방문후경과일수')
+plt.axvline(8.5, color='grey')
+plt.axhline(21.5, color='grey')
+plt.xlim(-2,20)
+plt.show()
+#%%
+
+#%%
+top150popPrds = cntnpcnt(dflogpst05.lastV_prd).nlargest(150,'recCnt').lastV_prd
+
+df_01= dflogpst05[dflogpst05.lastV_prd.isin(top150popPrds)][['lastV_prd', 'cntMon_ftr']].groupby('lastV_prd').mean().reset_index().sort_values('cntMon_ftr').head(15)
+df_02 = dflogpst05[dflogpst05.lastV_prd.isin(top150popPrds)][['lastV_prd', 'cntMon_ftr']].groupby('lastV_prd').mean().reset_index().sort_values('cntMon_ftr').tail(15)
+df_03 = pd.concat([df_01,df_02])
+
+plt.figure(figsize=(6,8))
+colors1 = list(np.repeat('blue',15)) + list(np.repeat('red',15)) 
+plt.barh(df_03.lastV_prd,df_03.cntMon_ftr, alpha=0.5, color=colors1)
+plt.xlabel('미래방문개월수 평균')
+plt.show()
+
+plt.bar(np.arange(150),
+    dflogpst05[dflogpst05.lastV_prd.isin(top150popPrds)][['lastV_prd', 'cntMon_ftr']].groupby('lastV_prd').mean().reset_index().sort_values('cntMon_ftr').cntMon_ftr)
+plt.show()
+#%% md
+- 파스타 등 한 번 구매로 끝날만한 상품을 보는 사람들이 떠나는 반면
+- 스테디셀러나 세트상품을 보는 사람들은 유지
