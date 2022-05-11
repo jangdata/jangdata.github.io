@@ -1,0 +1,39 @@
+# split kewords
+
+dfprdKwd.kwd_concat.str.split('|')
+
+df_prdkwd = pd.DataFrame([sub.split("|") for sub in dfprdKwd.kwd_concat.astype(str)])
+df_prdkwd.columns = 'c' + df_prdkwd.columns.astype(str)
+df_prdkwd.insert(0,'prd_nm', dfprdKwd.prd_nm)
+df_prdkwd = df_prdkwd.groupby('prd_nm').head(1)
+df_prdkwd
+
+
+# transfrom to long
+
+df_long = pd.wide_to_long(df_prdkwd, stubnames='c', i='prd_nm', j='kwd_seq').reset_index().sort_values(['prd_nm','kwd_seq'])
+df_long = df_long[~(df_long.c.isna())]
+df_long['c'] = df_long['c'].str.strip()
+print(df_long[['prd_nm','c']].drop_duplicates().shape)
+df_long
+
+
+
+dftst = dflog.head(10000).groupby(['prd_nm', 'mem_id']).count().reset_index().sort_values(['mem_id','pgc_dtm'], ascending=False)
+dftst = dftst.groupby('mem_id').head(3)
+
+
+seqArray = []
+for x in dftst.mem_id.unique():
+    seqArray = np.append(seqArray,np.arange(len(dftst[dftst.mem_id==x])))
+
+seqArray[:20]    
+dftst['seq']= seqArray
+dftst.head(2000).tail(30)
+
+
+
+# get sequence alternatively using pandas
+dftst['seqRnk']= np.array(dftst.groupby('mem_id').pgc_dtm.rank('first'))
+
+dftst.pivot(index='mem_id', columns='seq', values='prd_nm').reset_index().head(100).tail(30)
